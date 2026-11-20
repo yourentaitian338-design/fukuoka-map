@@ -1,0 +1,462 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>福岡おすすめスポットMAP</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<style>
+  :root {
+    --bg: #f3f6f7; --card: #ffffff; --ink: #16282e; --sub: #5b6f76;
+    --line: #d9e2e5; --accent: #0b6e7f;
+    --gohan: #d9480f; --cafe: #8a5a2b; --shizen: #2b8a3e; --asobi: #6741d9; --other: #495057;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+    font-family: "Hiragino Sans", "Noto Sans JP", "Yu Gothic", system-ui, sans-serif; font-size: 15px; line-height: 1.6; }
+  header { background: var(--accent); color: #fff; padding: 12px 16px; }
+  header h1 { margin: 0; font-size: 18px; }
+  header p { margin: 0; font-size: 12px; opacity: .85; }
+  #map { height: 46vh; min-height: 260px; background: #dfe8ea; }
+  #mapError { margin: 12px 16px 0; padding: 10px 12px; background: #fff4e6; border: 1px solid #ffd8a8; border-radius: 8px; font-size: 13px; }
+  [hidden] { display: none !important; }
+  main { max-width: 720px; margin: 0 auto; padding: 12px 16px 40px; display: flex; flex-direction: column; gap: 12px; }
+  .filter { display: flex; flex-direction: column; gap: 6px; }
+  .filter-label { font-size: 12px; color: var(--sub); font-weight: 600; }
+  .chips { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; }
+  .chip { flex: none; border: 1px solid var(--line); background: var(--card); color: var(--ink);
+    border-radius: 999px; padding: 8px 14px; font-size: 14px; font-family: inherit; cursor: pointer; }
+  .chip[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+  .chip:focus-visible, .spot:focus-visible { outline: 3px solid #ffa94d; outline-offset: 2px; }
+  #count { font-size: 13px; color: var(--sub); margin: 0; }
+  #list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+  .spot { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px;
+    display: flex; flex-direction: column; gap: 4px; cursor: pointer; }
+  .spot-name { font-size: 16px; font-weight: 700; margin: 0; }
+  .tags { display: flex; flex-wrap: wrap; gap: 6px; font-size: 12px; }
+  .tag { border-radius: 6px; padding: 1px 8px; color: #fff; }
+  .tag.budget { background: #e7eef0; color: var(--ink); }
+  .hitokoto { margin: 0; }
+  .meta { font-size: 12px; color: var(--sub); display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: center; }
+  a.gmap { color: var(--accent); font-weight: 600; font-size: 14px; padding: 6px 0; }
+  .pin { width: 26px; height: 26px; border-radius: 50% 50% 50% 0; transform: rotate(-45deg);
+    border: 2px solid #fff; box-shadow: 0 1px 4px rgba(0,0,0,.4); }
+  .leaflet-popup-content { font-family: inherit; font-size: 14px; margin: 12px 14px; }
+  .pop-name { font-weight: 700; font-size: 15px; }
+  .primary { background: var(--accent); color: #fff; border: 0; border-radius: 10px; padding: 12px 16px;
+    font-size: 16px; font-weight: 700; font-family: inherit; cursor: pointer; width: 100%; }
+  .ghost { background: none; border: 1px solid var(--line); color: var(--ink); border-radius: 10px; padding: 12px 16px;
+    font-size: 15px; font-family: inherit; cursor: pointer; }
+  #addForm { background: var(--card); border: 2px solid var(--accent); border-radius: 12px; padding: 14px;
+    display: flex; flex-direction: column; gap: 12px; }
+  #addForm h2 { margin: 0; font-size: 16px; }
+  .field { display: flex; flex-direction: column; gap: 4px; }
+  .field label { font-size: 13px; font-weight: 600; }
+  .field input, .field select, .field textarea { font: inherit; font-size: 16px; padding: 10px; border: 1px solid var(--line);
+    border-radius: 8px; background: #fff; color: var(--ink); width: 100%; }
+  .hint { font-size: 12px; color: var(--sub); margin: 0; }
+  #placeStatus { font-size: 14px; font-weight: 600; margin: 0; padding: 8px 10px; border-radius: 8px; background: #fff4e6; }
+  #placeStatus.ok { background: #e6f4ea; }
+  #formError { color: #c92a2a; font-size: 14px; font-weight: 600; margin: 0; }
+  .form-buttons { display: flex; gap: 8px; }
+  .form-buttons .primary { flex: 1; }
+  .pin.draft { background: #16282e; }
+  .note { margin: 0; padding: 8px 12px; background: #fff4e6; border: 1px solid #ffd8a8; border-radius: 8px; font-size: 13px; }
+  #passForm { background: var(--card); border: 2px solid var(--accent); border-radius: 12px; padding: 16px;
+    display: flex; flex-direction: column; gap: 12px; }
+  #passForm h2 { margin: 0; font-size: 16px; }
+  #app { display: flex; flex-direction: column; gap: 12px; }
+  .comments { border-top: 1px solid var(--line); margin-top: 6px; padding-top: 8px; display: flex; flex-direction: column; gap: 6px; cursor: default; }
+  .comment { margin: 0; font-size: 14px; }
+  .comment-form { display: flex; gap: 6px; flex-wrap: wrap; }
+  .comment-form input { font: inherit; font-size: 16px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px;
+    min-width: 0; flex: 1 1 140px; background: #fff; color: var(--ink); }
+  .comment-form .cby { flex: 0 1 110px; }
+  .comment-form button { flex: none; background: var(--accent); color: #fff; border: 0; border-radius: 8px; padding: 8px 14px;
+    font: inherit; font-weight: 700; cursor: pointer; }
+  button:disabled { opacity: .5; cursor: default; }
+  .cerr { color: #c92a2a; font-size: 13px; margin: 0; }
+  .empty { color: var(--sub); text-align: center; padding: 24px 0; }
+</style>
+</head>
+<body>
+<header>
+  <h1>福岡おすすめスポットMAP</h1>
+  <p>FREECAMPメンバーのおすすめ</p>
+</header>
+
+<div id="map"></div>
+<p id="mapError" hidden>地図を読み込めませんでした。下のリストから「Googleマップで開く」を使ってください。</p>
+
+<main>
+  <p class="note" id="trialNote" hidden>お試しモード：保存先につないでいないので、追加した内容はページを閉じると消えます。</p>
+  <form id="passForm" hidden novalidate>
+    <h2>合言葉を入れてください</h2>
+    <p class="hint">FREECAMPメンバーに共有されている合言葉です。一度入れると、このスマホでは次回から聞かれません。</p>
+    <div class="field"><label for="fPass">合言葉</label><input id="fPass" type="password" autocomplete="off"></div>
+    <p id="passError" class="cerr" hidden></p>
+    <button type="submit" class="primary">ひらく</button>
+  </form>
+  <div id="app">
+  <button type="button" class="primary" id="addBtn">＋ スポットを追加</button>
+  <form id="addForm" hidden novalidate>
+    <h2>スポットを追加</h2>
+    <div class="field">
+      <label>場所</label>
+      <p id="placeStatus">上の地図で、スポットの場所をタップしてください</p>
+      <p class="hint">ピンはタップし直すか、指で動かして調整できます。</p>
+    </div>
+    <div class="field"><label for="fName">名前</label><input id="fName" maxlength="40" placeholder="例：大濠公園"></div>
+    <div class="field"><label for="fGenre">ジャンル</label><select id="fGenre"></select></div>
+    <div class="field"><label for="fBudget">予算</label><select id="fBudget"></select></div>
+    <div class="field"><label for="fHitokoto">ひとこと</label><textarea id="fHitokoto" rows="2" maxlength="100" placeholder="おすすめの理由を一言で"></textarea></div>
+    <div class="field"><label for="fBy">ニックネーム</label><input id="fBy" maxlength="20" placeholder="本名は書かないでください"></div>
+    <div class="field"><label for="fGmap">Googleマップのリンク（なくてもOK）</label><input id="fGmap" inputmode="url" placeholder="https://maps.app.goo.gl/..."></div>
+    <p id="formError" hidden></p>
+    <div class="form-buttons">
+      <button type="submit" class="primary">追加する</button>
+      <button type="button" class="ghost" id="cancelBtn">やめる</button>
+    </div>
+  </form>
+  <div class="filter">
+    <span class="filter-label">ジャンル</span>
+    <div class="chips" id="genreChips"></div>
+  </div>
+  <div class="filter">
+    <span class="filter-label">予算</span>
+    <div class="chips" id="budgetChips"></div>
+  </div>
+  <p id="count"></p>
+  <ul id="list"></ul>
+  </div>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>
+// ===== 設定：ジャンルと予算帯（ここを書き換えると選択肢が変わる） =====
+const GENRES = [
+  { name: "ごはん", color: "var(--gohan)" },
+  { name: "カフェ", color: "var(--cafe)" },
+  { name: "自然",   color: "var(--shizen)" },
+  { name: "遊び",   color: "var(--asobi)" },
+  { name: "その他", color: "var(--other)" },
+];
+const BUDGETS = ["無料", "〜1,000円", "1,000〜3,000円", "3,000円〜"];
+
+// ===== 保存先のURL（Googleスプレッドシート側で発行したURLをここに貼る） =====
+// 空のままだと「お試しモード」になり、下のサンプルだけが表示される
+const API_URL = "https://script.google.com/macros/s/AKfycbyoOIKk4T9_v890DQGoI3vBo6HSTBeStJcd1jHh17Wzk5n7G-uKqBUsCEbWIkzejHwQ/exec";
+
+// ===== お試しモード用のサンプル =====
+const SAMPLES = [
+  { id: "s1", name: "大濠公園", genre: "自然", budget: "無料", lat: 33.5860, lng: 130.3764,
+    by: "サンプルさん", hitokoto: "【サンプル】池のまわりを1周散歩すると気持ちいい。", comments: [], date: "2026-11-13" },
+  { id: "s2", name: "中洲の屋台街", genre: "ごはん", budget: "1,000〜3,000円", lat: 33.5917, lng: 130.4069,
+    by: "サンプルさん", hitokoto: "【サンプル】夜に行くと福岡らしさを味わえる。", comments: [], date: "2026-11-13" },
+  { id: "s3", name: "キャナルシティ博多", genre: "遊び", budget: "〜1,000円", lat: 33.5898, lng: 130.4111,
+    by: "サンプルさん", hitokoto: "【サンプル】噴水ショーは無料で見られる。", comments: [], date: "2026-11-13" },
+];
+let spots = API_URL ? [] : SAMPLES;
+let pass = "";
+
+// このスマホに覚えておく小さなメモ（ニックネームと合言葉）
+function remember(key, value) { try { localStorage.setItem(key, value); } catch (e) {} }
+function recall(key) { try { return localStorage.getItem(key) || ""; } catch (e) { return ""; } }
+function forget(key) { try { localStorage.removeItem(key); } catch (e) {} }
+
+// 保存先との通信。合言葉をつけて送り、最新のスポット一覧を受け取る
+async function api(action, data) {
+  const res = await fetch(API_URL, {
+    method: "POST",
+    headers: { "Content-Type": "text/plain;charset=utf-8" },
+    body: JSON.stringify({ action, pass, ...data }),
+  });
+  const json = await res.json();
+  if (!json.ok) throw new Error(json.error || "error");
+  spots = json.spots;
+  return json;
+}
+function errorText(e) {
+  if (e.message === "setup") return "保存先の合言葉がまだ設定されていません（管理者に連絡してください）。";
+  return "送信できませんでした。電波を確認して、もう一度試してください。";
+}
+
+let genreFilter = "すべて";
+let budgetFilter = "すべて";
+let map = null;
+const markers = {};
+
+const genreColor = (g) => (GENRES.find(x => x.name === g) || GENRES[GENRES.length - 1]).color;
+const gmapUrl = (s) => s.gmap || `https://www.google.com/maps/search/?api=1&query=${s.lat},${s.lng}`;
+
+// 文字を安全に画面へ出すための小さな部品（入力された文字をそのまま表示する）
+function el(tag, cls, text) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text != null) e.textContent = text;
+  return e;
+}
+function gmapLink(s) {
+  const a = el("a", "gmap", "Googleマップで開く");
+  a.href = gmapUrl(s); a.target = "_blank"; a.rel = "noopener";
+  a.addEventListener("click", ev => ev.stopPropagation());
+  return a;
+}
+
+// ===== 地図 =====
+function initMap() {
+  if (typeof L === "undefined") return showMapError();
+  map = L.map("map").setView([33.59, 130.40], 12);
+  // 地図画像：ふだんはOpenStreetMap（Googleマップに近い見た目）。
+  // 読み込めないときは国土地理院の淡い地図に自動で切り替える。どちらもダメなら地図を隠してリスト表示。
+  const osm = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19,
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>' });
+  const gsi = '<a href="https://maps.gsi.go.jp/development/ichiran.html">地理院タイル</a>';
+  const pale = L.tileLayer("https://cyberjapandata.gsi.go.jp/xyz/pale/{z}/{x}/{y}.png", { maxZoom: 18, attribution: gsi });
+  const photo = L.tileLayer("https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/{z}/{x}/{y}.jpg", { maxZoom: 18, attribution: gsi });
+  map.on("click", ev => { if (adding) setDraft(ev.latlng); });
+
+  function watch(layer, onFail) {
+    let loaded = false, errors = 0;
+    layer.on("tileload", () => { loaded = true; });
+    layer.on("tileerror", () => { if (!loaded && ++errors >= 4) { errors = -1e9; onFail(); } });
+  }
+  let control = L.control.layers({ "地図": osm, "写真": photo }, null, { collapsed: false }).addTo(map);
+  watch(osm, () => {
+    map.removeLayer(osm); control.remove();
+    pale.addTo(map);
+    control = L.control.layers({ "地図": pale, "写真": photo }, null, { collapsed: false }).addTo(map);
+  });
+  watch(pale, showMapError);
+  osm.addTo(map);
+}
+function showMapError() {
+  document.getElementById("map").hidden = true;
+  document.getElementById("mapError").hidden = false;
+  if (map) { map.remove(); map = null; }
+}
+function popupContent(s) {
+  const box = el("div");
+  box.append(el("div", "pop-name", s.name), el("div", null, s.hitokoto),
+             el("div", "meta", `${s.genre}・${s.budget}・おすすめ：${s.by}`), gmapLink(s));
+  return box;
+}
+function drawMarkers(visible) {
+  if (!map) return;
+  Object.values(markers).forEach(m => m.remove());
+  for (const k in markers) delete markers[k];
+  visible.filter(s => s.lat != null).forEach(s => {
+    const icon = L.divIcon({ className: "", iconSize: [26, 26], iconAnchor: [13, 26], popupAnchor: [0, -24],
+      html: `<div class="pin" style="background:${genreColor(s.genre)}"></div>` });
+    markers[s.id] = L.marker([s.lat, s.lng], { icon, title: s.name }).addTo(map).bindPopup(popupContent(s));
+  });
+}
+
+// ===== 絞り込みボタン =====
+function drawChips(boxId, options, current, onPick) {
+  const box = document.getElementById(boxId);
+  box.replaceChildren();
+  ["すべて", ...options].forEach(name => {
+    const b = el("button", "chip", name);
+    b.type = "button";
+    b.setAttribute("aria-pressed", String(name === current));
+    b.addEventListener("click", () => onPick(name));
+    box.append(b);
+  });
+}
+
+// ===== リスト =====
+function drawList(visible) {
+  const list = document.getElementById("list");
+  list.replaceChildren();
+  document.getElementById("count").textContent = `${visible.length}件のスポット`;
+  if (!visible.length) { list.append(el("li", "empty", "条件に合うスポットがありません。絞り込みをゆるめてみてください。")); return; }
+  visible.forEach(s => {
+    const li = el("li", "spot");
+    li.tabIndex = 0;
+    const tags = el("div", "tags");
+    const g = el("span", "tag", s.genre); g.style.background = genreColor(s.genre);
+    tags.append(g, el("span", "tag budget", s.budget));
+    const meta = el("div", "meta");
+    meta.append(el("span", null, `おすすめ：${s.by}`), el("span", null, `登録日：${s.date}`));
+    li.append(el("h2", "spot-name", s.name), tags, el("p", "hitokoto", s.hitokoto), meta, gmapLink(s), commentBox(s));
+    const focus = () => {
+      if (!map || !markers[s.id]) return;
+      map.setView([s.lat, s.lng], 15);
+      markers[s.id].openPopup();
+      document.getElementById("map").scrollIntoView({ behavior: "smooth", block: "start" });
+    };
+    li.addEventListener("click", focus);
+    li.addEventListener("keydown", ev => { if (ev.key === "Enter") focus(); });
+    list.append(li);
+  });
+}
+
+// ===== コメント =====
+function commentBox(s) {
+  const box = el("div", "comments");
+  box.addEventListener("click", ev => ev.stopPropagation());   // コメント欄を触っても地図は動かさない
+  box.addEventListener("keydown", ev => ev.stopPropagation());
+  (s.comments || []).forEach(c => {
+    const p = el("p", "comment");
+    p.append(el("b", null, c.by + "："), document.createTextNode(c.text));
+    box.append(p);
+  });
+  const form = el("form", "comment-form");
+  const nick = recall("nickname");
+  const by = el("input", "cby"); by.maxLength = 20; by.placeholder = "ニックネーム"; by.value = nick; by.hidden = !!nick;
+  by.setAttribute("aria-label", "ニックネーム");
+  const text = el("input"); text.maxLength = 100; text.placeholder = nick ? `${nick} としてコメント` : "コメントを書く";
+  text.setAttribute("aria-label", "コメント");
+  const send = el("button", null, "送信"); send.type = "submit";
+  const err = el("p", "cerr"); err.hidden = true;
+  form.append(by, text, send);
+  form.addEventListener("submit", async ev => {
+    ev.preventDefault();
+    const c = { by: by.value.trim(), text: text.value.trim() };
+    if (!c.by || !c.text) { err.textContent = "ニックネームとコメントを入れてください。"; err.hidden = false; return; }
+    send.disabled = true; send.textContent = "送信中…";
+    try {
+      if (API_URL) await api("addComment", { spotId: s.id, ...c });
+      else s.comments.push(c);
+      remember("nickname", c.by);
+      render();
+    } catch (e) {
+      if (e.message === "pass") return lock("合言葉が変わったようです。新しい合言葉を入れてください。");
+      err.textContent = errorText(e); err.hidden = false;
+      send.disabled = false; send.textContent = "送信";
+    }
+  });
+  box.append(form, err);
+  return box;
+}
+
+function render() {
+  const visible = spots.filter(s =>
+    (genreFilter === "すべて" || s.genre === genreFilter) &&
+    (budgetFilter === "すべて" || s.budget === budgetFilter));
+  drawChips("genreChips", GENRES.map(g => g.name), genreFilter, v => { genreFilter = v; render(); });
+  drawChips("budgetChips", BUDGETS, budgetFilter, v => { budgetFilter = v; render(); });
+  drawMarkers(visible);
+  drawList(visible);
+}
+
+// ===== スポット追加フォーム =====
+let adding = false;
+let draft = null;   // 追加中の仮のピン
+const $ = id => document.getElementById(id);
+
+function fillSelect(id, options) {
+  const sel = $(id);
+  sel.append(new Option("選んでください", ""));
+  options.forEach(o => sel.append(new Option(o, o)));
+}
+function setDraft(latlng) {
+  if (draft) draft.setLatLng(latlng);
+  else {
+    const icon = L.divIcon({ className: "", iconSize: [26, 26], iconAnchor: [13, 26], html: '<div class="pin draft"></div>' });
+    draft = L.marker(latlng, { icon, draggable: true, zIndexOffset: 1000 }).addTo(map);
+  }
+  $("placeStatus").textContent = "場所を決めました（黒いピン）";
+  $("placeStatus").classList.add("ok");
+}
+function openForm() {
+  adding = true;
+  $("addBtn").hidden = true;
+  $("addForm").hidden = false;
+  if (!map) $("placeStatus").textContent = "地図が使えないため、下の「Googleマップのリンク」を必ず入れてください";
+  $("fBy").value = recall("nickname");
+  (map ? $("map") : $("addForm")).scrollIntoView({ behavior: "smooth", block: "start" });
+}
+function closeForm() {
+  adding = false;
+  if (draft) { draft.remove(); draft = null; }
+  $("addForm").reset();
+  $("addForm").hidden = true;
+  $("addBtn").hidden = false;
+  $("formError").hidden = true;
+  $("placeStatus").textContent = "上の地図で、スポットの場所をタップしてください";
+  $("placeStatus").classList.remove("ok");
+}
+function today() {
+  const d = new Date(), z = n => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${z(d.getMonth() + 1)}-${z(d.getDate())}`;
+}
+async function submitForm(ev) {
+  ev.preventDefault();
+  const v = id => $(id).value.trim();
+  const gmap = v("fGmap");
+  let error = "";
+  if (!draft && !gmap) error = map ? "地図をタップして場所を決めてください。" : "Googleマップのリンクを入れてください。";
+  else if (!v("fName")) error = "名前を入れてください。";
+  else if (!v("fGenre")) error = "ジャンルを選んでください。";
+  else if (!v("fBudget")) error = "予算を選んでください。";
+  else if (!v("fHitokoto")) error = "ひとことを入れてください。";
+  else if (!v("fBy")) error = "ニックネームを入れてください。";
+  else if (gmap && !/^https:\/\//.test(gmap)) error = "Googleマップのリンクは https:// で始まるものを貼ってください。";
+  if (error) { $("formError").textContent = error; $("formError").hidden = false; return; }
+
+  const pos = draft ? draft.getLatLng() : null;
+  let spot = { id: "n" + Date.now(), name: v("fName"), genre: v("fGenre"), budget: v("fBudget"),
+    lat: pos ? pos.lat : null, lng: pos ? pos.lng : null, gmap: gmap || "",
+    by: v("fBy"), hitokoto: v("fHitokoto"), comments: [], date: today() };
+  remember("nickname", spot.by);
+  if (API_URL) {
+    const btn = $("addForm").querySelector("button[type=submit]");
+    btn.disabled = true; btn.textContent = "送信中…";
+    try {
+      const r = await api("addSpot", spot);
+      spot = spots.find(x => x.id === r.id) || spot;
+    } catch (e) {
+      if (e.message === "pass") { closeForm(); return lock("合言葉が変わったようです。新しい合言葉を入れてください。"); }
+      $("formError").textContent = errorText(e); $("formError").hidden = false;
+      return;
+    } finally { btn.disabled = false; btn.textContent = "追加する"; }
+  } else {
+    spots.unshift(spot);
+  }
+  genreFilter = budgetFilter = "すべて";
+  closeForm();
+  render();
+  if (map && markers[spot.id]) { map.setView([spot.lat, spot.lng], 15); markers[spot.id].openPopup(); }
+}
+
+fillSelect("fGenre", GENRES.map(g => g.name));
+fillSelect("fBudget", BUDGETS);
+$("addBtn").addEventListener("click", openForm);
+$("cancelBtn").addEventListener("click", closeForm);
+$("addForm").addEventListener("submit", submitForm);
+
+// ===== 合言葉と最初の読み込み =====
+function lock(message) {
+  forget("pass"); pass = "";
+  $("app").hidden = true;
+  $("passForm").hidden = false;
+  $("passError").textContent = message || ""; $("passError").hidden = !message;
+}
+async function load() {
+  $("passForm").hidden = true;
+  $("app").hidden = false;
+  $("count").textContent = "読み込み中…";
+  try {
+    await api("list");
+    remember("pass", pass);
+    render();
+  } catch (e) {
+    if (e.message === "pass") return lock("合言葉が違います。");
+    $("count").textContent = e.message === "setup" ? errorText(e) : "読み込めませんでした。電波を確認して、ページを開き直してください。";
+  }
+}
+$("passForm").addEventListener("submit", ev => {
+  ev.preventDefault();
+  pass = $("fPass").value.trim();
+  if (pass) { $("fPass").value = ""; load(); }
+});
+
+initMap();
+render();
+if (!API_URL) $("trialNote").hidden = false;
+else { pass = recall("pass"); pass ? load() : lock(); }
+</script>
+</body>
+</html>
