@@ -132,6 +132,7 @@
 </main>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/leaflet.gridlayer.googlemutant@0.15.0/dist/Leaflet.GoogleMutant.js"></script>
 <script>
 // ===== 設定：ジャンルと予算帯（ここを書き換えると選択肢が変わる） =====
 const GENRES = [
@@ -145,6 +146,10 @@ const BUDGETS = ["無料", "〜1,000円", "1,000〜3,000円", "3,000円〜"];
 
 // ===== 保存先のURL（Googleスプレッドシート側で発行したURLをここに貼る） =====
 // 空のままだと「お試しモード」になり、下のサンプルだけが表示される
+// ===== GoogleマップのAPIキー（Google Cloudで発行した「AIza…」をここに貼る） =====
+// 空のまま、またはGoogleの地図が使えないときは、無料の地図（OpenStreetMap）を使う
+const GOOGLE_KEY = "AIzaSyDb4a2HfWaVxneZ7J9kZImxsAFAq0yxliA";
+
 const API_URL = "https://script.google.com/macros/s/AKfycbyoOIKk4T9_v890DQGoI3vBo6HSTBeStJcd1jHh17Wzk5n7G-uKqBUsCEbWIkzejHwQ/exec";
 
 // ===== お試しモード用のサンプル =====
@@ -207,6 +212,40 @@ function gmapLink(s) {
 function initMap() {
   if (typeof L === "undefined") return showMapError();
   map = L.map("map").setView([33.59, 130.40], 12);
+  map.on("click", ev => { if (adding) setDraft(ev.latlng); });
+  if (GOOGLE_KEY && L.gridLayer.googleMutant) useGoogleMap(); else useFreeMap();
+}
+
+// ----- Googleマップ -----
+// 上限（1日300回）に達した日や、鍵の制限に引っかかったときは、無料の地図に切り替える
+function useGoogleMap() {
+  let done = false;
+  const fallback = () => {
+    if (done) return; done = true;
+    map.eachLayer(l => { if (l instanceof L.GridLayer) map.removeLayer(l); });
+    if (googleControl) googleControl.remove();
+    useFreeMap();
+  };
+  let googleControl = null;
+  window.gm_authFailure = fallback;          // Googleが「この鍵は使えない」と言ったとき
+  const timer = setTimeout(fallback, 10000); // 10秒たっても読み込めないとき
+  window.onGoogleReady = () => {
+    if (done) return;
+    clearTimeout(timer);
+    const opts = { maxZoom: 20, styles: [{ featureType: "poi.business", stylers: [{ visibility: "on" }] }] };
+    const road = L.gridLayer.googleMutant({ ...opts, type: "roadmap" }).addTo(map);
+    const hybrid = L.gridLayer.googleMutant({ ...opts, type: "hybrid" });
+    googleControl = L.control.layers({ "地図": road, "写真": hybrid }, null, { collapsed: false }).addTo(map);
+  };
+  const sc = document.createElement("script");
+  sc.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(GOOGLE_KEY)}&language=ja&region=JP&loading=async&callback=onGoogleReady`;
+  sc.async = true;
+  sc.onerror = fallback;
+  document.head.append(sc);
+}
+
+// ----- 無料の地図 -----
+function useFreeMap() {
   // 地図画像：ふだんはOpenStreetMap（Googleマップに近い見た目）。
   // 読み込めないときは国土地理院の淡い地図に自動で切り替える。どちらもダメなら地図を隠してリスト表示。
   const osm = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19,
@@ -214,7 +253,6 @@ function initMap() {
   const gsi = '<a href="https://maps.gsi.go.jp/development/ichiran.html">地理院タイル</a>';
   const pale = L.tileLayer("https://cyberjapandata.gsi.go.jp/xyz/pale/{z}/{x}/{y}.png", { maxZoom: 18, attribution: gsi });
   const photo = L.tileLayer("https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/{z}/{x}/{y}.jpg", { maxZoom: 18, attribution: gsi });
-  map.on("click", ev => { if (adding) setDraft(ev.latlng); });
 
   function watch(layer, onFail) {
     let loaded = false, errors = 0;
@@ -282,7 +320,7 @@ function drawList(visible) {
     li.append(el("h2", "spot-name", s.name), tags, el("p", "hitokoto", s.hitokoto), meta, gmapLink(s), commentBox(s));
     const focus = () => {
       if (!map || !markers[s.id]) return;
-      map.setView([s.lat, s.lng], 15);
+      map.setView([s.lat, s.lng], 17);
       markers[s.id].openPopup();
       document.getElementById("map").scrollIntoView({ behavior: "smooth", block: "start" });
     };
