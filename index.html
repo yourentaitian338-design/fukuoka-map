@@ -75,6 +75,12 @@
   .comment-form button { flex: none; background: var(--accent); color: #fff; border: 0; border-radius: 8px; padding: 8px 14px;
     font: inherit; font-weight: 700; cursor: pointer; }
   button:disabled { opacity: .5; cursor: default; }
+  .del { align-self: flex-start; background: none; border: 1px solid var(--line); color: var(--sub); border-radius: 8px;
+    padding: 6px 12px; font: inherit; font-size: 13px; cursor: pointer; }
+  .del.armed { border-color: #c92a2a; color: #fff; background: #c92a2a; font-weight: 700; }
+  .cdel { background: none; border: 0; color: var(--sub); font: inherit; font-size: 12px; padding: 2px 6px; margin-left: 6px; cursor: pointer;
+    border-radius: 6px; }
+  .cdel.armed { background: #c92a2a; color: #fff; font-weight: 700; }
   .cerr { color: #c92a2a; font-size: 13px; margin: 0; }
   .empty { color: var(--sub); text-align: center; padding: 24px 0; }
 </style>
@@ -317,7 +323,8 @@ function drawList(visible) {
     tags.append(g, el("span", "tag budget", s.budget));
     const meta = el("div", "meta");
     meta.append(el("span", null, `おすすめ：${s.by}`), el("span", null, `登録日：${s.date}`));
-    li.append(el("h2", "spot-name", s.name), tags, el("p", "hitokoto", s.hitokoto), meta, gmapLink(s), commentBox(s));
+    li.append(el("h2", "spot-name", s.name), tags, el("p", "hitokoto", s.hitokoto), meta, gmapLink(s), commentBox(s),
+      deleteButton("del", "このスポットを削除", "もう一度押すと削除", () => remove("deleteSpot", s.id, () => { spots = spots.filter(x => x !== s); })));
     const focus = () => {
       if (!map || !markers[s.id]) return;
       map.setView([s.lat, s.lng], 17);
@@ -330,6 +337,44 @@ function drawList(visible) {
   });
 }
 
+// ===== 削除 =====
+// 間違えて押さないように、1回目で「もう一度押すと削除」に変わり、4秒以内にもう一度押したら削除する
+function deleteButton(cls, label, armedLabel, onConfirm) {
+  const b = el("button", cls, label);
+  b.type = "button";
+  let timer = null;
+  b.addEventListener("click", ev => {
+    ev.stopPropagation();
+    if (b.disabled) return;
+    if (!b.classList.contains("armed")) {
+      b.classList.add("armed"); b.textContent = armedLabel;
+      timer = setTimeout(() => { b.classList.remove("armed"); b.textContent = label; }, 4000);
+      return;
+    }
+    clearTimeout(timer);
+    b.disabled = true; b.textContent = "削除中…";
+    onConfirm().catch(() => { b.disabled = false; b.classList.remove("armed"); b.textContent = label; });
+  });
+  return b;
+}
+// 保存先では「非表示」にするだけなので、管理者はスプレッドシートで元に戻せる
+async function remove(action, id, localRemove) {
+  try {
+    if (API_URL) await api(action, { id, by: recall("nickname") });
+    else localRemove();
+    render();
+  } catch (e) {
+    if (e.message === "pass") { lock("合言葉が変わったようです。新しい合言葉を入れてください。"); return; }
+    alertBar(e.message === "unknown action" ? "削除の機能がまだ保存先に入っていません（管理者に連絡してください）。" : errorText(e));
+    throw e;
+  }
+}
+function alertBar(text) {
+  const n = $("trialNote");
+  n.textContent = text; n.hidden = false;
+  setTimeout(() => { n.hidden = true; }, 6000);
+}
+
 // ===== コメント =====
 function commentBox(s) {
   const box = el("div", "comments");
@@ -337,7 +382,8 @@ function commentBox(s) {
   box.addEventListener("keydown", ev => ev.stopPropagation());
   (s.comments || []).forEach(c => {
     const p = el("p", "comment");
-    p.append(el("b", null, c.by + "："), document.createTextNode(c.text));
+    p.append(el("b", null, c.by + "："), document.createTextNode(c.text),
+      deleteButton("cdel", "削除", "本当に削除？", () => remove("deleteComment", c.id, () => { s.comments = s.comments.filter(x => x !== c); })));
     box.append(p);
   });
   const form = el("form", "comment-form");
