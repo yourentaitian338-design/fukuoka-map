@@ -68,6 +68,7 @@
   #app { display: flex; flex-direction: column; gap: 12px; }
   .comments { border-top: 1px solid var(--line); margin-top: 6px; padding-top: 8px; display: flex; flex-direction: column; gap: 6px; cursor: default; }
   .comment { margin: 0; font-size: 14px; }
+  .comment-form .photo-btn { position: relative; }
   .comment-form { display: flex; gap: 6px; flex-wrap: wrap; }
   .comment-form input { font: inherit; font-size: 16px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px;
     min-width: 0; flex: 1 1 140px; background: #fff; color: var(--ink); }
@@ -81,6 +82,17 @@
   .cdel { background: none; border: 0; color: var(--sub); font: inherit; font-size: 12px; padding: 2px 6px; margin-left: 6px; cursor: pointer;
     border-radius: 6px; }
   .cdel.armed { background: #c92a2a; color: #fff; font-weight: 700; }
+  .cphoto { display: block; margin-top: 6px; max-width: 100%; max-height: 240px; border-radius: 8px; cursor: zoom-in;
+    background: var(--bg); }
+  .cphoto.big { max-height: none; cursor: zoom-out; }
+  .cphoto-wait { display: block; margin-top: 6px; font-size: 12px; color: var(--sub); }
+  .photo-btn { flex: none; display: inline-flex; align-items: center; border: 1px solid var(--line); border-radius: 8px;
+    padding: 8px 10px; font-size: 14px; cursor: pointer; background: #fff; color: var(--ink); }
+  .photo-btn:focus-within { outline: 3px solid #ffa94d; outline-offset: 2px; }
+  .photo-btn input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+  .preview { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .preview img { width: 72px; height: 72px; object-fit: cover; border-radius: 8px; }
+  .preview button { background: none; border: 1px solid var(--line); border-radius: 8px; padding: 4px 10px; font: inherit; font-size: 13px; cursor: pointer; }
   .cerr { color: #c92a2a; font-size: 13px; margin: 0; }
   .empty { color: var(--sub); text-align: center; padding: 24px 0; }
 </style>
@@ -381,38 +393,105 @@ function commentBox(s) {
   box.addEventListener("click", ev => ev.stopPropagation());   // コメント欄を触っても地図は動かさない
   box.addEventListener("keydown", ev => ev.stopPropagation());
   (s.comments || []).forEach(c => {
-    const p = el("p", "comment");
-    p.append(el("b", null, c.by + "："), document.createTextNode(c.text),
-      deleteButton("cdel", "削除", "本当に削除？", () => remove("deleteComment", c.id, () => { s.comments = s.comments.filter(x => x !== c); })));
+    const p = el("div", "comment");
+    p.append(el("b", null, c.by + "："));
+    if (c.text) p.append(document.createTextNode(c.text));
+    p.append(deleteButton("cdel", "削除", "本当に削除？", () => remove("deleteComment", c.id, () => { s.comments = s.comments.filter(x => x !== c); })));
+    if (c.photo || c.photoUrl) p.append(photoView(c));
     box.append(p);
   });
+
   const form = el("form", "comment-form");
   const nick = recall("nickname");
   const by = el("input", "cby"); by.maxLength = 20; by.placeholder = "ニックネーム"; by.value = nick; by.hidden = !!nick;
   by.setAttribute("aria-label", "ニックネーム");
   const text = el("input"); text.maxLength = 100; text.placeholder = nick ? `${nick} としてコメント` : "コメントを書く";
   text.setAttribute("aria-label", "コメント");
+  const pick = el("label", "photo-btn", "📷 写真");
+  const file = el("input"); file.type = "file"; file.accept = "image/*"; pick.append(file);
   const send = el("button", null, "送信"); send.type = "submit";
+  const preview = el("div", "preview"); preview.hidden = true;
   const err = el("p", "cerr"); err.hidden = true;
-  form.append(by, text, send);
+  form.append(by, text, pick, send);
+
+  let photo = null;   // 送る前の写真（小さくしたJPEG）
+  file.addEventListener("change", async () => {
+    err.hidden = true;
+    const f = file.files[0];
+    file.value = "";
+    if (!f) return;
+    try {
+      photo = await shrinkPhoto(f);
+      const img = el("img"); img.src = photo.url; img.alt = "送る写真";
+      const cancel = el("button", null, "写真をやめる"); cancel.type = "button";
+      cancel.addEventListener("click", () => { photo = null; preview.hidden = true; preview.replaceChildren(); });
+      preview.replaceChildren(img, el("span", "hint", "人の顔が写った写真は、本人の許可をとってから送ってください。"), cancel);
+      preview.hidden = false;
+    } catch (e) {
+      err.textContent = "この写真は読み込めませんでした。別の写真を選んでください。"; err.hidden = false;
+    }
+  });
+
   form.addEventListener("submit", async ev => {
     ev.preventDefault();
     const c = { by: by.value.trim(), text: text.value.trim() };
-    if (!c.by || !c.text) { err.textContent = "ニックネームとコメントを入れてください。"; err.hidden = false; return; }
+    if (!c.by || (!c.text && !photo)) { err.textContent = "ニックネームと、コメントか写真を入れてください。"; err.hidden = false; return; }
     send.disabled = true; send.textContent = "送信中…";
     try {
-      if (API_URL) await api("addComment", { spotId: s.id, ...c });
-      else s.comments.push(c);
+      if (API_URL) await api("addComment", { spotId: s.id, ...c, photo: photo ? photo.base64 : "" });
+      else s.comments.push({ ...c, photoUrl: photo ? photo.url : "" });
       remember("nickname", c.by);
       render();
     } catch (e) {
       if (e.message === "pass") return lock("合言葉が変わったようです。新しい合言葉を入れてください。");
-      err.textContent = errorText(e); err.hidden = false;
+      err.textContent = e.message === "写真が大きすぎます" ? "写真が大きすぎます。別の写真を選んでください。" : errorText(e);
+      err.hidden = false;
       send.disabled = false; send.textContent = "送信";
     }
   });
-  box.append(form, err);
+  box.append(form, preview, err);
   return box;
+}
+
+// 写真を長い辺1280pxまで小さくしてJPEGにする。
+// 作り直すので、写真に入っている撮影場所（GPS）などの情報はここで消える。
+async function shrinkPhoto(f) {
+  const src = URL.createObjectURL(f);
+  try {
+    const img = await new Promise((ok, ng) => { const i = new Image(); i.onload = () => ok(i); i.onerror = ng; i.src = src; });
+    const scale = Math.min(1, 1280 / Math.max(img.naturalWidth, img.naturalHeight));
+    const cv = document.createElement("canvas");
+    cv.width = Math.round(img.naturalWidth * scale); cv.height = Math.round(img.naturalHeight * scale);
+    cv.getContext("2d").drawImage(img, 0, 0, cv.width, cv.height);
+    let quality = 0.8, dataUrl = cv.toDataURL("image/jpeg", quality);
+    while (dataUrl.length > 1400000 && quality > 0.4) { quality -= 0.15; dataUrl = cv.toDataURL("image/jpeg", quality); }
+    return { url: dataUrl, base64: dataUrl.split(",")[1] };
+  } finally { URL.revokeObjectURL(src); }
+}
+
+// 写真は合言葉つきで保存係から1枚ずつ受け取る。一度受け取ったものは覚えておき、何度も取りに行かない
+const photoCache = {};
+function loadPhoto(id) {
+  if (!photoCache[id]) {
+    photoCache[id] = fetch(API_URL, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify({ action: "photo", pass, photoId: id }) })
+      .then(r => r.json())
+      .then(j => { if (!j.ok) throw new Error(j.error); return `data:${j.type};base64,${j.data}`; })
+      .catch(e => { delete photoCache[id]; throw e; });
+  }
+  return photoCache[id];
+}
+function photoView(c) {
+  const wrap = el("span");
+  const show = url => {
+    const img = el("img", "cphoto"); img.src = url; img.alt = `${c.by}さんの写真`;
+    img.addEventListener("click", () => img.classList.toggle("big"));   // タップで大きく／元に戻す
+    wrap.replaceChildren(img);
+  };
+  if (c.photoUrl) { show(c.photoUrl); return wrap; }
+  wrap.append(el("span", "cphoto-wait", "写真を読み込み中…"));
+  loadPhoto(c.photo).then(show).catch(() => wrap.replaceChildren(el("span", "cphoto-wait", "写真を読み込めませんでした。")));
+  return wrap;
 }
 
 function render() {
